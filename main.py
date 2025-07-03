@@ -1,9 +1,11 @@
 import hashlib
 import json
 from time import time
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from ecdsa import SigningKey, VerifyingKey, SECP256k1
 import binascii
+import plyvel
+from pathlib import Path
 
 
 @dataclass
@@ -86,17 +88,47 @@ def proof_of_work(block, difficulty=4):
 
 
 class Blockchain:
-    def __init__(self):
-        self.chain = [self.create_genesis_block()]
+    def __init__(self, db_path="./blockchain_db"):
+        self.db = plyvel.DB(db_path, create_if_missing=True)
         self.difficulty = 4
         self.pending_transactions = []
 
-    def create_genesis_block(self):
+        if not self.db.get(b"last_hash"):
+            self._create_genesis_block
+
+    def _create_genesis_block(self):
         genesis_tx = Transaction(sender_pubkey="0", recipient_address="0", amount=0)
-        return Block(0, time(), [genesis_tx], "0")
+        genesis_block = Block(
+            index=0, timestamp=time(), transactions=[genesis_tx], previous_hash="0"
+        )
+        genesis_block.hash = genesis_block.calculate_hash()
+        self._save_block(genesis_block)
+
+    def _save_block(self, block):
+        # Save block to LevelDB
+        block_data = json.dumps(asdict(block)).encode()
+        self.db.put(block.hash.encode(), block_data)
+        self.db.put(b"last_path", block.hash.encode())
+
+    def get_last_block(self):
+        last_hash = self.db.get(b"last_hash")
+        if not last_hash:
+            return None
+        block_data = json.loads(self.db.get(last_hash))
+        return self._deserialize_block(block_data)
+
+    def _deserialize_block(self, block_data):
+        transactions = [Transaction(**tx) for tx in block_data["transactions"]]
+        return Block(
+            index=block_data["index"],
+            timestamp=block_data["timestamp"],
+            transactions=transactions,
+            previous_hash=block_data["previous_hash"],
+            nonce=block_data["nonce"],
+            hash=block_data["hash"],
+        )
 
     def add_transaction(self, transaction):
-        # self.pending_transactions.append(transaction)
         """Add a new transaction if it's properly signed"""
         if not transaction.verify():
             raise ValueError("Invalid transaction signature")
@@ -107,7 +139,7 @@ class Blockchain:
             print("No transxtions to mine!")
             return None
 
-        last_block = self.chain[-1]
+        last_block = self.get_last_block()
 
         new_block = Block(
             index=last_block.index + 1,
@@ -118,30 +150,42 @@ class Blockchain:
 
         # Perform the proof-of-work
         print(f"Mining block {new_block.index}...")
-        mined_block = proof_of_work(new_block, self.difficulty)
+        prefix = "0" * self.difficulty
+        while True:
+            new_block.hash = new_block.calculate_hash()
+            if new_block.hash.startswith(prefix):
+                break
+            new_block.nonce += 1
 
-        self.chain.append(mined_block)
+        self._save_block(new_block)
         self.pending_transactions = []
-        print(f"Block mined: {mined_block.hash}")
-        return mined_block
+        print(f"Block mined: {new_block.hash}")
+        return new_block
 
-    def is_chain_valid(self):
-        for i in range(1, len(self.chain)):
-            current = self.chain[i]
-            previous = self.chain[i - 1]
+    def get_block(self, block_hash):
+        block_data = self.db.get(block_hash.encode())
+        if block_data:
+            return self._deserialize_block(json.loads(block_data))
+        return None
 
-            # Check hash integrity
-            if current.hash != current.calculate_hash():
+    def validate_chain(self):
+        current_hash = self.db.get(b"last_hash")
+        while current_hash:
+            block = self.get_block(current_hash.decode())
+            if not block:
                 return False
 
-            # Check hash meets difficulty requirement
-            if not current.hash.startswith("0" * self.difficulty):
+            # Validate hash
+            if block.hash != block.calculate_hash():
                 return False
 
-            # Check chain linkage
-            if current.previous_hash != previous.hash:
-                return False
+            # Validate previous hash line
+            if block.index > 0:
+                prev_block = self.get_block(block.previous_hash)
+                if not prev_block or prev_block.index != block.index - 1:
+                    return False
 
+            current_hash = block.previous_hash.encode()
         return True
 
 
@@ -200,7 +244,7 @@ if __name__ == "__main__":
             )
 
     # Validate the chain
-    print("\nBlockchain valied?", blockchain.is_chain_valid())
+    print("\nBlockchain valied?", blockchain.validate_chain())
 
     # Try tempering (this will invalidate the chain)
     print("\nAttempting to temper with block 1...")
