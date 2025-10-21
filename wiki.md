@@ -230,6 +230,8 @@ Hash function
 
 Hello world!614 -> hash -> 00068A3C
 
+## step 12
+
 
 
 
