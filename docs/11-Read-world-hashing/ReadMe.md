@@ -1,15 +1,14 @@
-Step 11
-Real world hashing 
+# Step 11- Real world hashing 
 
-Data comparison 
+## Data comparison 
 Instead of comparing data, compare data hashes 
 
-Data changes 
+## Data changes 
 
-Change-sensitive data reference 
+## Change-sensitive data reference 
 Difference hash values consequences invalid hash
 
-Data saving sensitive to change 
+## Data saving sensitive to change 
 1. Chain-Linked data (the macro structure)
       + overall architecture of the Blockchain itself 
       + immutability
@@ -21,7 +20,7 @@ Data saving sensitive to change
       + Security Verification 
 
 
-Time-consulting computation 
+## Time-consulting computation 
 Finding Blockchain hash puzzle by resources not knowledge 
 
 Hash function 
